@@ -248,20 +248,20 @@ func (c *Context) Error(err error) *Error {
 // It also lazy initializes  c.Keys if it was not used previously.
 func (c *Context) Set(key string, value any) {
 	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.Keys == nil {
 		c.Keys = make(map[string]any)
 	}
 
 	c.Keys[key] = value
-	c.mu.Unlock()
 }
 
 // Get returns the value for the given key, ie: (value, true).
 // If the value does not exist it returns (nil, false)
 func (c *Context) Get(key string) (value any, exists bool) {
 	c.mu.RLock()
+	defer c.mu.RUnlock()
 	value, exists = c.Keys[key]
-	c.mu.RUnlock()
 	return
 }
 
@@ -652,7 +652,7 @@ func (c *Context) BindYAML(obj any) error {
 }
 
 // BindTOML is a shortcut for c.MustBindWith(obj, binding.TOML).
-func (c *Context) BindTOML(obj interface{}) error {
+func (c *Context) BindTOML(obj any) error {
 	return c.MustBindWith(obj, binding.TOML)
 }
 
@@ -717,7 +717,7 @@ func (c *Context) ShouldBindYAML(obj any) error {
 }
 
 // ShouldBindTOML is a shortcut for c.ShouldBindWith(obj, binding.TOML).
-func (c *Context) ShouldBindTOML(obj interface{}) error {
+func (c *Context) ShouldBindTOML(obj any) error {
 	return c.ShouldBindWith(obj, binding.TOML)
 }
 
@@ -924,7 +924,9 @@ func (c *Context) Render(code int, r render.Render) {
 	}
 
 	if err := r.Render(c.Writer); err != nil {
-		panic(err)
+		// Pushing error to c.Errors
+		_ = c.Error(err)
+		c.Abort()
 	}
 }
 
@@ -993,7 +995,7 @@ func (c *Context) YAML(code int, obj any) {
 }
 
 // TOML serializes the given struct as TOML into the response body.
-func (c *Context) TOML(code int, obj interface{}) {
+func (c *Context) TOML(code int, obj any) {
 	c.Render(code, render.TOML{Data: obj})
 }
 
@@ -1147,7 +1149,7 @@ func (c *Context) NegotiateFormat(offered ...string) string {
 			// According to RFC 2616 and RFC 2396, non-ASCII characters are not allowed in headers,
 			// therefore we can just iterate over the string without casting it into []rune
 			i := 0
-			for ; i < len(accepted); i++ {
+			for ; i < len(accepted) && i < len(offer); i++ {
 				if accepted[i] == '*' || offer[i] == '*' {
 					return offer
 				}
